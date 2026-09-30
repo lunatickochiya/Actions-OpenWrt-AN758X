@@ -1,0 +1,13 @@
+--- a/mt_wifi/embedded/ap/ap_cfg.c
++++ b/mt_wifi/embedded/ap/ap_cfg.c
+@@ -26,6 +26,10 @@
+ 
+ 
+ #include "rt_config.h"
++#ifdef MGMT_TXPWR_CTRL
++/* wtbl_update_pwr_offset() is declared here, guarded by the same macro. */
++#include "mac/mac_mt/fmac/mt_fmac.h"
++#endif
+ 
+ #ifdef RLM_CAL_CACHE_SUPPORT
+ #include "phy/rlm_cal_cache.h"

@@ -1,0 +1,17 @@
+--- a/mt_wifi/embedded/include/rtmp_chip.h	2025-04-08 12:23:09.000000000 +0800
++++ b/mt_wifi/embedded/include/rtmp_chip.h	2026-09-29 09:13:35.890279869 +0800
+@@ -540,14 +540,12 @@
+ #if defined(PRE_CAL_MT7986_SUPPORT) || defined(PRE_CAL_MT7916_SUPPORT) || \
+ 	defined(PRE_CAL_MT7981_SUPPORT) || defined(PRE_CAL_MT7915_SUPPORT)
+ 
+-#ifdef RTMP_FLASH_SUPPORT
+ enum PRECAL_INDICATION_BIT_OFFSET {
+ 	GROUP_PRECAL_INDN_BIT = 0,
+ 	DPD5G_PRECAL_INDN_BIT,
+ 	DPD2G_PRECAL_INDN_BIT,
+ 	DPD6G_PRECAL_INDN_BIT,
+ };
+-#endif
+ 
+ enum {
+     GBAND = 0,

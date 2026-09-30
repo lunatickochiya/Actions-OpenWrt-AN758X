@@ -1,0 +1,11 @@
+--- a/mt_wifi/os/linux/rt_linux.c	2025-04-08 12:23:07.000000000 +0800
++++ b/mt_wifi/os/linux/rt_linux.c	2026-09-29 09:47:07.454210039 +0800
+@@ -49,7 +49,7 @@
+ #include "meminfo_list.h"
+ #endif /* MEM_ALLOC_INFO_SUPPORT */
+ 
+-#ifdef CONFIG_FAST_NAT_SUPPORT
++#if defined(CONFIG_FAST_NAT_SUPPORT) || defined(WHNAT_SUPPORT)
+ #include <net/ra_nat.h>
+ #endif /*CONFIG_FAST_NAT_SUPPORT*/
+ #include "multi_hif.h"

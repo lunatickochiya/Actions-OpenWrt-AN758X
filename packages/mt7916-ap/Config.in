@@ -1,0 +1,43 @@
+if PACKAGE_kmod-mt7916-ap
+
+config MT7916_AP_OFFLOAD
+	bool "Attach the NPU offload adapter (mt_whnat)"
+	depends on PACKAGE_kmod-mt7916-ap
+	default n
+	help
+	  额外编译并加载 mt_whnat.ko —— MTK 侧的 WIFI-to-Ethernet 卸载适配层。
+
+	  它通过 mt_wlan_hook_register() 挂到 mt_wifi 的
+	  WLAN_HOOK_TX / WLAN_HOOK_RX 钩子上，把帧交给 Airoha 侧端点
+	  (ra_sw_nat_hook_tx)，跳出来就是 NPU / PPE 的数据面。
+
+	  当前 airoha_mt7916_offload.ko 里的实现返回 0，即"这个包我没接管"。
+	  因为调用点语义是
+
+	      if (ra_sw_nat_hook_tx(skb, WHNAT_WDMA_PORT) != 1)
+	              txblk->DropPkt = TRUE;
+
+	  所以返回 0 就正好等于"走慢路、驱动自己发"，不丢包，但不是加速路径。
+
+	  如果你还在首次点亮这条链路，先关掉它 —— mt_wifi 单独是能正常工作的
+	  （它用自己的 TX ring 发 Wi-Fi 帧，以太网侧由 nf_flow_table / PPE
+	  自行加速）。真要做 NPU 卸载，需要先把以下三件补齐：
+
+	    1. 解析 wifi 节点的 airoha,npu / airoha,eth phandle
+	       （an7581-evb.dts 里有这两个属性，但树内没有任何 .c 消费它）
+	    2. 从已加载的 mt_wifi 手里认领 WDMA ring
+	       （hc_get_hif_ctrl() 给出 WED 描述符基址）
+	    3. 把帧推到那个 ring 上并返回 1
+
+config MT7916_AP_RPS
+	bool "Spread WiFi rx across CPUs with software RPS"
+	depends on PACKAGE_kmod-mt7916-ap
+	default y
+	help
+	  在 NPU 不承载 Wi-Fi 流量时的兜底手段：用 RPS 把 Wi-Fi 收包软中断
+	  分摊到多个 ARM 核上，而不是全压在一个队列里。
+
+	  只要 MT7916_AP_OFFLOAD 还是关着的（也就是默认状态），开着这项基本
+	  没有副作用，多核利用率会好看很多。真跑通 NPU 卸载后关掉。
+
+endif

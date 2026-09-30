@@ -1,0 +1,18 @@
+--- a/mt_wifi/os/linux/bb_soc.c
++++ b/mt_wifi/os/linux/bb_soc.c
+@@ -2,7 +2,14 @@
+ 
+ #include "os/bb_soc.h"
+ /* #include "rtmp_timer.h" */
+-/* #include "rt_config.h" */
++/*
++ * Several OS-layer sources in this release ship their aggregate
++ * #include "rt_config.h" commented out, which leaves struct wifi_dev /
++ * RTMP_ADAPTER / MSDU_FORBID_* / os_snprintf_error() and the mtwf_dbg_prt()
++ * prototype (used by MTWF_DBG) undeclared.  Restore it.
++ */
++#include "rt_config.h"
++
+ #ifdef WSC_AP_SUPPORT
+ extern int wscTimerRunning;
+ extern int wscStatus;

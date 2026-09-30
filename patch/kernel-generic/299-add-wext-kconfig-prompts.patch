@@ -1,0 +1,19 @@
+--- a/net/wireless/Kconfig
++++ b/net/wireless/Kconfig
+@@ -1,6 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ config WIRELESS_EXT
+-	bool
++	bool "Wireless extensions"
+ 
+ config WEXT_CORE
+ 	def_bool y
+@@ -12,7 +12,7 @@
+ 	depends on WEXT_CORE
+ 
+ config WEXT_PRIV
+-	bool
++	bool "WEXT_PRIV"
+ 
+ config CFG80211
+ 	tristate "cfg80211 - wireless configuration API"

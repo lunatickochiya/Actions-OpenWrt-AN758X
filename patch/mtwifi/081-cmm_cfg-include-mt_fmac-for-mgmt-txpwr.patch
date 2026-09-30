@@ -1,0 +1,13 @@
+--- a/mt_wifi/embedded/common/cmm_cfg.c
++++ b/mt_wifi/embedded/common/cmm_cfg.c
+@@ -23,6 +23,10 @@
+ */
+ 
+ #include "rt_config.h"
++#ifdef MGMT_TXPWR_CTRL
++/* wtbl_update_pwr_offset() is declared here, guarded by the same macro. */
++#include "mac/mac_mt/fmac/mt_fmac.h"
++#endif
+ #if (defined(TR181_SUPPORT) || defined(DATA_TXPWR_CTRL))
+ #include "hdev/hdev_basic.h"
+ #endif /*TR181_SUPPORT*/

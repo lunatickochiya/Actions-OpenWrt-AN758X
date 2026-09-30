@@ -1,0 +1,19 @@
+--- a/mt_wifi/os/linux/ap_ioctl.c
++++ b/mt_wifi/os/linux/ap_ioctl.c
+@@ -25,7 +25,15 @@
+ */
+ #define RTMP_MODULE_OS
+ 
+-/*#include "rt_config.h" */
++/*
++ * rt_config.h is the aggregate header every other compilation unit in this
++ * driver includes; it pulls rtmp.h (struct wifi_dev / PRTMP_ADAPTER /
++ * CHANNEL_CTRL) and dbg_ctrl.h (declares mtwf_dbg_prt(), used by MTWF_DBG).
++ * rtmp_comm.h alone does not reach either, so the ioctl handler failed with
++ * "invalid use of undefined type" and "implicit declaration".  Upstream ships
++ * this line commented out.
++ */
++#include "rt_config.h"
+ #include "rtmp_comm.h"
+ #include "rt_os_util.h"
+ #include "rt_os_net.h"

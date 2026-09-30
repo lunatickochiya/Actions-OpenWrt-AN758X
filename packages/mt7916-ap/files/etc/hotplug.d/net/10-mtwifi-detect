@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Tell netifd about MTK radios as they appear.
+#
+# The closed-source driver creates its netdevs (ra*, rax*) asynchronously and
+# never announces anything to netifd, so without this hook netifd has no idea
+# the interfaces exist.
+
+[ -z "$INTERFACE" ] && exit 0
+
+case "$INTERFACE" in
+	ra*|apcli*) ;;
+	*) exit 0 ;;
+esac
+
+[ "$ACTION" = "add" ] || exit 0
+
+(
+	# Give the driver a moment to finish creating the rest of its VAPs,
+	# otherwise we run wifi once per interface and it churns.
+	sleep 1
+	. /lib/functions.sh
+	ubus -t 5 wait_for network.wireless >/dev/null 2>&1
+	/sbin/wifi reload >/dev/null 2>&1
+	logger -t mtwifi-detect "radio $INTERFACE appeared, reloaded wireless"
+) &

@@ -1,0 +1,28 @@
+--- a/mt_wifi/embedded/common/hif_pci.c
++++ b/mt_wifi/embedded/common/hif_pci.c
+@@ -4955,13 +4955,18 @@
+ #if LINUX_VERSION_CODE > KERNEL_VERSION(4, 3, 0)
+ 		if (rx_ring->buf_type == DYNAMIC_PAGE_ALLOC) {
+ 
+-			if (rx_ring->rx_page.va) {
+-				struct page *page;
+-
+-				page = virt_to_page(rx_ring->rx_page.va);
+-				rx_page_frag_cache_drain(page, rx_ring->rx_page.pagecnt_bias);
+-				NdisZeroMemory(&rx_ring->rx_page, sizeof(rx_ring->rx_page));
+-			}
++			/*
++			 * 'struct page_frag_cache' lost its ->va member in Linux 6.13
++			 * ("mm: page_frag: reuse existing space for 'size' and
++			 * 'pfmemalloc'"): the virtual address now lives encoded in
++			 * ->encoded_page.  page_frag_cache_drain() predates that change,
++			 * already no-ops when nothing is cached, and does the
++			 * virt_to_page()/pagecnt_bias work for us, so call it instead of
++			 * poking at whichever member happens to exist -- no version
++			 * guard needed.
++			 */
++			page_frag_cache_drain(&rx_ring->rx_page);
++			NdisZeroMemory(&rx_ring->rx_page, sizeof(rx_ring->rx_page));
+ 		}
+ #endif
+ 

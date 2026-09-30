@@ -1,0 +1,135 @@
+#!/bin/sh /etc/rc.common
+#
+# MT7916 闭源 AP 驱动的启动前准备 / 收尾。
+#
+# 三个 ko 的加载顺序由 kmod 包自带的 AUTOLOAD 负责
+# (airoha_mt7916_offload -> mt_wifi -> [mt_whnat])，这里不重复 insmod。
+#
+# 这个脚本只管两件 AUTOLOAD 管不了的事：
+#   1. EEPROM / 校准数据必须在 mt_wifi probe 之前就位
+#   2. NPU 不承载 Wi-Fi 流量时，把收包软中断摊到多核上
+#
+# START=21 排在 network 之前。
+
+START=21
+STOP=89
+
+USE_PROCD=1
+
+LOG_TAG="mt7916-ap"
+
+# 未指定 profile 时 MT7916 走 mt7916_get_default_bin_image_file() 的默认
+# 路径 —— 源码 chips/mt7916.c:3816 确认就是这个文件。MT7916 需要的是
+# 一整块 NVM bin，不是 2G/5G 两份。
+EEPROM_TARGET="/lib/firmware/e2p"
+
+log() {
+	logger -t "$LOG_TAG" "$@"
+}
+
+uci_get() {
+	uci -q get "mt7916.@eeprom[0].$1" 2>/dev/null
+}
+
+# ---------------------------------------------------------
+# EEPROM / 校准数据
+#
+# 这是整个移植里最容易踩的坑：没有校准数据时射频照样起来、照样能关联，
+# 只是发射功率是错的 —— 表现为"连得上但速率极差"。
+# 校准数据每块板子都不同，存在各自的 flash 分区里，通用包给不了。
+# ---------------------------------------------------------
+prepare_eeprom() {
+	# 0) 用户已经放好了，别动它
+	if [ -s "$EEPROM_TARGET" ]; then
+		log "使用已有 EEPROM: $EEPROM_TARGET ($(wc -c < "$EEPROM_TARGET") bytes)"
+		return 0
+	fi
+
+	# 1) UCI 里显式给了一个文件
+	local uci_file
+	uci_file="$(uci_get file)"
+	if [ -n "$uci_file" ] && [ -s "$uci_file" ]; then
+		cp "$uci_file" "$EEPROM_TARGET"
+		log "按 UCI 指定装载 EEPROM: $uci_file"
+		return 0
+	fi
+
+	# 2) UCI 里给了一个 mtd 分区名（可选带偏移/长度）
+	local uci_mtd
+	uci_mtd="$(uci_get mtd)"
+	if [ -n "$uci_mtd" ]; then
+		local dev
+		dev="$(sed -ne "s|^\(mtd[0-9]*\):.*\"$uci_mtd\"|\1|p" /proc/mtd 2>/dev/null)"
+		if [ -n "$dev" ]; then
+			local off len
+			off="$(uci_get offset)"
+			len="$(uci_get length)"
+			# 默认取 4096 字节：本包模板就是这么大
+			: "${off:=0}"
+			: "${len:=4096}"
+			if dd if="/dev/$dev" of="$EEPROM_TARGET" bs=1 \
+				skip="$off" count="$len" 2>/dev/null; then
+				log "从分区 $uci_mtd 提取 EEPROM (offset=${off:-0} len=${len:-全分区})"
+				return 0
+			fi
+			log "分区 $uci_mtd 提取失败"
+		else
+			log "找不到分区 $uci_mtd"
+		fi
+	fi
+
+	# 3) 兜底：本包自带的通用模板。能让射频跑起来，但功率不准 ——
+	#    只适合先把链路点亮，不适合长期跑。
+	local tpl
+	for tpl in /etc/mt7916/eeprom-templates/MT7916_ePAeLNA_EEPROM.bin \
+		   /etc/mt7916/eeprom-templates/MT7916_iPAeLNA_EEPROM.bin; do
+		if [ -s "$tpl" ]; then
+			cp "$tpl" "$EEPROM_TARGET"
+			log "WARNING: 本机 EEPROM 未适配，套用通用模板 $(basename "$tpl")"
+			log "         射频功率不准确，请按 /etc/mt7916/README 补上本机校准数据"
+			return 0
+		fi
+	done
+
+	log "WARNING: 没有 EEPROM / 校准数据，射频将以错误功率运行"
+	return 0
+}
+
+# ---------------------------------------------------------
+# RPS —— NPU 不承载 Wi-Fi 时的软分担
+# ---------------------------------------------------------
+setup_rps() {
+	local iface q
+	for iface in ra0 rai0 rax0 apclii0 apcli0; do
+		[ -d "/sys/class/net/$iface/queues" ] || continue
+		for q in "/sys/class/net/$iface/queues/rx-"*; do
+			[ -f "$q/rps_cpus" ] && echo 7 > "$q/rps_cpus" 2>/dev/null
+		done
+	done
+}
+
+start_service() {
+	prepare_eeprom
+
+	# mt_whnat 没加载 = NPU 不接 Wi-Fi，全靠 ARM 软转发
+	if [ ! -d /sys/module/mt_whnat ]; then
+		setup_rps
+	fi
+
+	# 驱动的 netdev 是异步创建的。netifd 通过
+	# /etc/hotplug.d/net/10-mtwifi-detect 认领它们，这里再补一次触发，
+	# 防止 netdev 在 hotplug handler 就位之前就已经建好了。
+	[ -x /sbin/wifi ] && {
+		sleep 2
+		/sbin/wifi up radio0 2>/dev/null || true
+	}
+}
+
+stop_service() {
+	:
+}
+
+reload_service() {
+	stop
+	start
+}

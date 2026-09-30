@@ -1,0 +1,82 @@
+MT7916 EEPROM / 校准数据
+========================
+
+驱动在未指定 profile 时，走的是 `mt7916_get_default_bin_image_file()`
+的默认分支：
+
+```c
+/* chips/mt7916.c:3808 */
+if (strlen(get_dev_eeprom_binary(ad)) > 0)
+        snprintf(path, 100, "/lib/firmware/%s", get_dev_eeprom_binary(ad));
+else
+        snprintf(path, 100, "%s", "/lib/firmware/e2p");
+```
+
+也就是 **`/lib/firmware/e2p`**。`get_dev_eeprom_binary()` 取的是
+`l1profile[dev_idx].ee_info.bin_name`，那玩意来自 `.dat` profile
+文件；这里不打算引入 MTK 的 profile 体系，所以就用默认路径。
+
+注意这是 **E2P_BIN_MODE**（`CONFIG_RTMP_FLASH_SUPPORT=n` 时自动这样）。
+不要打开 `RTMP_FLASH_SUPPORT` —— 它会拉进 `ee_flash.c`，后者引用 MTK
+私有的 `mt_eeprom_read_wifi()` / `mt_eeprom_write_wifi()`，ponwrt 里
+没有任何模块导出这两个符号，链接必挂。
+
+
+怎么拿到本机的 EEPROM
+---------------------
+
+校准数据在每块板子的 flash 分区里，名字各家不一样。先看看有什么：
+
+```sh
+cat /proc/mtd
+```
+
+Airoha SDK 的做法是 `ecnt_wifi_e2p` 之类的 init 脚本：`dd` 出一段，
+再 bind-mount 到 `/lib/firmware/`。本机可以用下面任意一种方式配好后
+重启一遍 init：`/etc/init.d/mt7916-ap restart`。
+
+### 方式 A：从分区提取（推荐）
+
+```sh
+uci set mt7916.eeprom=eeprom
+uci set mt7916.eeprom.mtd='Factory'
+uci set mt7916.eeprom.offset=0
+uci set mt7916.eeprom.length=4096
+uci commit mt7916
+```
+
+### 方式 B：已经有现成的文件
+
+```sh
+uci set mt7916.eeprom=eeprom
+uci set mt7916.eeprom.file='/lib/firmware/mediatek/mt7916_eeprom.bin'
+uci commit mt7916
+```
+
+### 方式 C：手工放好
+
+直接把 bin 拷成 `/lib/firmware/e2p`。脚本检测到它已存在就不会动它。
+
+
+自带的模板只能点亮，不能长跑
+----------------------------
+
+`/etc/mt7916/eeprom-templates/` 下是源码包 `bin/mt7916/rebb/` 里带的
+通用模板（ePAeLNA / ePAiLNA / iPAeLNA / iPAiLNA 几种前端组合）。
+
+在没有配 UCI 的情况下脚本会套用第一个能找到的模板，让它先把链路点亮。
+**但这是通用功率表，不是你这台机器的校准值。** 典型症状：能关联、
+信号看着还行、速率低得离谱、或者距离一远就掉。
+
+拿到真机原厂分区之后请务必替换掉。
+
+
+znxt_zn515xg-d 已经有现成的包
+-----------------------------
+
+ponwrt 自带 `package/firmware/znxt-zn515-mt7916-eeprom`，它把
+`mt7916_eeprom.bin` 装到 `/lib/firmware/mediatek/`。如果你是那块板子，
+装它 + 用上面的方式 B 指过去就行。
+
+别的机型还没适配 —— 提取出来之后建议给 ponwrt 提个 PR，照那个包的
+格式做一个 `<board>-mt7916-eeprom`。

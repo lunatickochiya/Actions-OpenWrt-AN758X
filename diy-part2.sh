@@ -5,6 +5,7 @@
 #
 #   1) 默认时区改成中国（Asia/Shanghai, CST-8）
 #   2) 5G WiFi：国家码 CN、信道 auto、频宽 160MHz
+#   3) 固件版本后面追加作者与构建时间（LuCI 概览页「固件版本」）
 # ================================================================
 
 echo "=========================================="
@@ -19,6 +20,11 @@ WIFI_5G_COUNTRY="${WIFI_5G_COUNTRY:-CN}"       # 国家代码（CN = 中国）
 WIFI_5G_CHANNEL="${WIFI_5G_CHANNEL:-auto}"     # 信道（auto = 自动选择）
 WIFI_5G_HTMODE="${WIFI_5G_HTMODE:-HE160}"      # 160MHz（WiFi6）；回落 HE80
 WIFI_5G_FALLBACK="${WIFI_5G_FALLBACK:-HE80}"   # 硬件不支持 160MHz 时的回落值
+
+# ---- 固件版本后缀：作者 + 构建时间 ----
+FW_AUTHOR="${FW_AUTHOR:-qwe3017}"              # 显示在固件版本后的作者名
+FW_BUILD_TIME="${FW_BUILD_TIME:-}"             # 留空 = 自动取当前时间（Asia/Shanghai）
+FW_DESC_SUFFIX="${FW_DESC_SUFFIX:-}"           # 留空 = "· <作者> · <构建时间>"，要完全自定义就填这个
 
 # ---------------------------------------------------------
 # 1. 修改 config_generate 的默认值（首次开机生成的 /etc/config/system）
@@ -173,6 +179,53 @@ if [ -f .config ]; then
     echo "CONFIG_PACKAGE_iw=y                       # 无线命令行工具（160MHz 能力检测需要）" >> .config
     echo "✅ iw 已加入 .config"
   fi
+fi
+
+# ---------------------------------------------------------
+# 5. 固件版本追加「作者 + 构建时间」
+#
+#    LuCI 概览页「固件版本」显示的是 /etc/openwrt_release 里的
+#    DISTRIB_DESCRIPTION。该文件由 base-files 提供，编译时装完 ipk 后
+#    用 VERSION_SED_SCRIPT 把模板里的占位符替换掉：
+#        %D = VERSION_DIST      （PonWrt）
+#        %V = VERSION_NUMBER    （SNAPSHOT）
+#        %C = VERSION_CODE      （ponwrt 默认为空）
+#
+#    所以这里改的是**模板** package/base-files/files/etc/openwrt_release，
+#    编译时自动替换 —— 不需要首启脚本，也不会被 ipk 覆盖。
+#    改 files/etc/openwrt_release 反而不行：那会写死版本号，丢了 %D %V。
+# ---------------------------------------------------------
+[ -z "$FW_BUILD_TIME" ] && FW_BUILD_TIME="$(TZ="${TZ:-Asia/Shanghai}" date '+%Y-%m-%d %H:%M')"
+
+# %C 为空时模板里保留 %C 会留下连续空格，故按需决定要不要带上
+VER_CODE="$(sed -n 's/^CONFIG_VERSION_CODE="\(.*\)"$/\1/p' .config 2>/dev/null || true)"
+if [ -n "$VER_CODE" ]; then
+  DESC_BODY='%D %V %C'
+else
+  DESC_BODY='%D %V'
+fi
+[ -z "$FW_DESC_SUFFIX" ] && FW_DESC_SUFFIX="· ${FW_AUTHOR} · ${FW_BUILD_TIME}"
+
+RELEASE_TPL="package/base-files/files/etc/openwrt_release"
+OSREL_TPL="package/base-files/files/usr/lib/os-release"
+
+# 用 perl + 环境变量传替换文本：作者名/后缀里带 / | # & 都不会搞坏语法
+# （直接 sed "s|...|${FW_DESC_SUFFIX}|" 遇到这些字符会炸）
+FW_DESC_LINE="DISTRIB_DESCRIPTION='${DESC_BODY} ${FW_DESC_SUFFIX}'"
+OSREL_LINE="OPENWRT_RELEASE=\"${DESC_BODY} ${FW_DESC_SUFFIX}\""
+export FW_DESC_LINE OSREL_LINE
+
+if [ -f "$RELEASE_TPL" ]; then
+  perl -i -pe 's/^DISTRIB_DESCRIPTION=.*/$ENV{FW_DESC_LINE}/' "$RELEASE_TPL"
+  echo "✅ 固件版本模板 -> $FW_DESC_LINE"
+else
+  echo "::warning::未找到 $RELEASE_TPL，固件版本不会带构建信息"
+fi
+
+# os-release 同步（部分工具/LuCI 版本读它；%B 只是 SOURCE_DATE_EPOCH 时间戳，不好看）
+if [ -f "$OSREL_TPL" ]; then
+  perl -i -pe 's/^OPENWRT_RELEASE=.*/$ENV{OSREL_LINE}/' "$OSREL_TPL"
+  echo "✅ os-release 同步 -> $OSREL_LINE"
 fi
 
 echo "🎉 diy-part2.sh 执行完毕"

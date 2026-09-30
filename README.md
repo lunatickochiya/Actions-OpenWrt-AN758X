@@ -11,6 +11,7 @@
 diy-part1.sh    拉取可选插件到 package/custom（passwall/openclash/mosdns/lucky/tailscale 等，默认全关）
 diy-part2.sh    默认值定制：① 时区改中国（Asia/Shanghai, CST-8）
                 ② 5G WiFi：国家码 CN / 信道 auto / 频宽 160MHz
+                ③ 固件版本后追加「作者 + 构建时间」
 configs/        每机型一份精简 diffconfig（约 440 行，需 make defconfig 展开）
 files/          自定义 rootfs 文件，会自动拷进源码（sbin/tempinfo + 两个 uci-defaults））
 packages/npu-clanker-template/   可选插件包的 Makefile 模板（占位符 @PKG_NAME@ 等）
@@ -19,6 +20,9 @@ scripts/        NPU 固件脚本：
                   gen-npu-fw-package.sh   把编出的镜像包成「可选插件包」
                   strip-default-npu-fw.sh 把 stock 固件从 target 的 DEFAULT_PACKAGES 里摘掉
                   apply-npu-dts.sh        给机型 DTS 补 WiFi 卸载保留内存区 / firmware-name
+                  apply-mtwifi.sh         按 wifi_driver 选项导入闭源 mt_wifi（见下节）
+packages/mt7916-ap/      闭源 WiFi 驱动包本体（源码编译模板，不是二进制）
+patch/                   闭源 WiFi 所需补丁集，分三个区（详见「闭源 WiFi 驱动选择」）
 ```
 
 ## diy 脚本
@@ -67,6 +71,46 @@ scripts/        NPU 固件脚本：
 | 中文翻译 | ❌ po/ 只有 es + templates | ✅ 自带 `po/zh_Hans`，48 条全翻 |
 | 仓库结构 | ⚠ 根目录 + 同名子目录各一份，feed 索引会中断 | ✅ 单层，正常 |
 | luci.mk 路径 | 需 feeds 在固定位置 | ✅ 已修 |
+
+## 固件版本后追加「作者 + 构建时间」
+
+LuCI 概览页「固件版本」现在长这样：
+
+```
+PonWrt SNAPSHOT · qwe3017 · 2026-09-30 17:09
+```
+
+### 原理（别改错文件）
+
+LuCI 读的是 `/etc/openwrt_release` 里的 `DISTRIB_DESCRIPTION`。这个文件由
+`base-files` 提供，编译时装完 ipk 后用 `VERSION_SED_SCRIPT` 把模板里的占位符替换：
+
+| 占位符 | 含义 | ponwrt 默认 |
+|---|---|---|
+| `%D` | `VERSION_DIST` | `PonWrt` |
+| `%V` | `VERSION_NUMBER` | `SNAPSHOT` |
+| `%C` | `VERSION_CODE` | 空 |
+
+所以改的是**模板** `package/base-files/files/etc/openwrt_release`
+（`diy-part2.sh` 第 5 段），编译时自动替换 —— 不需要首启脚本，也不会被 ipk 覆盖。
+
+> 不要写 `files/etc/openwrt_release`：那会把版本号写死，`%D %V` 就没了。
+> `os-release` 里的 `%B` 只有 `SOURCE_DATE_EPOCH` 时间戳，不可读，所以构建
+> 时间由脚本自己格式化。
+
+### 怎么改
+
+| 方式 | 做法 |
+|---|---|
+| 换作者名 | workflow 输入项 `fw_author`（默认 `qwe3017`） |
+| 固定构建时间 | 环境变量 `FW_BUILD_TIME`（留空 = 自动取构建时刻，Asia/Shanghai） |
+| 完全自定义后缀 | 环境变量 `FW_DESC_SUFFIX`（填了就忽略上面两个，例如 `\| built by A/B #1`） |
+| 改 `diy-part2.sh` 顶部常量 | 同上三个常量，编译期生效 |
+
+`FW_DESC_SUFFIX` 里带 `/` `|` `#` `&` 也没问题 —— 脚本用 perl + 环境变量传
+替换文本，不走 sed 分隔符。
+
+若 `.config` 里设了 `CONFIG_VERSION_CODE`，模板会自动保留 `%C`，不会出现连续空格。
 
 ## 5G WiFi 默认值（国家码 CN / 信道 auto / 160MHz）
 
@@ -286,6 +330,125 @@ ls -l /lib/firmware/airoha/   # 两个 bin 在位
   NPU 一直不绑定（`deferred probe pending` 里能看到具体文件名），不会像以前那样卡 60 秒 sysfs fallback。
 - 大小超限：直接 `-E2BIG`。
 - LuCI「Airoha SoC 状态页」（`luci-app-airoha-npu`）可看 NPU 卸载 / PPE 流表是否正常。
+
+## 闭源 WiFi 驱动选择（mac80211 / mtwifi）
+
+除了 `npu_fw`，还有一条**独立的** WiFi 驱动链路选项 `wifi_driver`：
+
+| 选项 | 走的驱动 | 说明 |
+|---|---|---|
+| `mac80211`（默认） | `kmod-mt7915e` + mt76 + cfg80211 | 上游开源链路，跟 ponwrt 默认完全一致，这一步什么都不做 |
+| `mtwifi` | **MTK 闭源 `mt_wifi`** 7.6.7.3 | 源码编译：`mt_wifi.ko` + `airoha_mt7916_offload.ko` |
+| `mtwifi+whnat` | 同上 + `mt_whnat.ko` | 再挂上 MTK 的 WIFI-to-Eth 卸载适配层 |
+
+两条链路互斥 —— `mt7915e` 和 `mt_wifi` 抢同一个 PCI 设备 `14C3:7906`。
+选 `mtwifi*` 时 CI 会把 `kmod-mt7915e / kmod-mt76-core / kmod-mt76-connac`
+连同 `CONFIG_DEFAULT_*` `CONFIG_MODULE_DEFAULT_*` 三个前缀一起压成
+`is not set`（跟 7.5 处理 stock NPU 固件同一套手法）。
+
+> 故意**不**动 `kmod-mac80211` / `kmod-cfg80211`：它们不 probe 任何硬件，
+> 关掉反而会让依赖它们的包在 defconfig 阶段解析失败。只关真正抢设备的 mt76 三件套。
+
+### patch/ 为什么分成三个区
+
+| 区域 | 落到哪 | 由谁施加 |
+|---|---|---|
+| `patch/kernel-generic/` | `target/linux/generic/hack-6.18/` | ponwrt 的 kernel build 流程 |
+| `patch/kernel-an7581/` | 追加进 `target/linux/airoha/an7581/config-6.18` | `apply-mtwifi.sh`（幂等追加，不是 `git apply`） |
+| `patch/mtwifi/` | `package/custom/mt7916-ap/patches/` | 包构建阶段的 `Build/Patch`（按 `series` 顺序） |
+
+`apply-mtwifi.sh` 负责全部搬运，**不需要手工拷任何东西**。细节见 [`patch/README.md`](patch/README.md)。
+
+这块源码原本适配 5.4.x / 5.10，搬到 6.18 要过三关：内核 API 改名（`patch/mtwifi/`，
+23 个补丁）、控制面 WEXT（`patch/kernel-*`）、链接期符号（已用包的 `WIFI_CONF` 关掉
+需要 MTK 私有 hook 的功能）。
+
+### 控制面这一关最容易漏
+
+mt_wifi 没有 cfg80211，也没有 phy 设备，`iw` / `hostapd` 全都管不到它。
+它只认 `iwpriv` / `iwconfig` 的 `SIOCIW*` ioctl —— 而分发函数
+`wext_ioctl_dispatch()` 只存在于 `net/wireless/wext-core.c`，编译条件是
+`CONFIG_WEXT_CORE`。
+
+**没开的话：驱动能加载、网卡能起来，但没有任何手段能配置它。** 这种失败模式
+特别烦人，因为构建全程是绿的。
+
+而且单把 `CONFIG_WIRELESS_EXT=y` 写进 config 没用 —— upstream 里它是无 prompt 的
+隐藏 bool，`olddefconfig` 会静默丢掉。在 v6.18 上实测（`CFG80211_WEXT` 关闭，
+即 ponwrt 的默认态）：
+
+| 输入 | `make olddefconfig` 之后 |
+|---|---|
+| 只写 WEXT 四件套 | 四个全丢，只剩 `CONFIG_WIRELESS=y` ❌ |
+| WEXT 四件套 + `299-add-wext-kconfig-prompts.patch` | 四个全部落地 `=y` ✅ |
+| 替代路线 `CFG80211_WEXT=y`（不补补丁） | 拿到 `WEXT_CORE`，但 **`WEXT_PRIV` 拿不到** —— `iwpriv` 运行时 `EOPNOTSUPP` ❌ |
+
+注意那个 prompt 补丁必须**跟当前内核版本配套**：mediatek 圈子里流传的
+`299-add-wext-kconfig.patch` 是给 6.12 写的，6.18 移除了 `WEXT_SPY`、
+并把 `LIB80211*` 挪出了 `net/wireless/Kconfig`，直接拿来用会 hunk 失败。
+
+### 执行顺序（不能反）
+
+```
+step 5    diy-part1.sh                    拉 luci 插件，注册 custom feed
+step 5.5  Build NPU firmware package      可选：现编 NPU 固件 -> 可选插件包
+step 5.6  Import closed-source WiFi   ← 本功能
+            ① patch/kernel-generic/*  -> target/linux/generic/hack-<KVER>/
+            ② patch/kernel-an7581/*   -> 追加进 target config
+            ③ packages/mt7916-ap + patch/mtwifi/* -> package/custom/mt7916-ap
+            ④ 重建索引（不做的话 defconfig 会把包符号静默删掉）
+step 6    载入 .config
+step 7    裁剪机型
+step 7.5  Select NPU firmware package
+step 7.6  Switch WiFi driver package  ← 本功能
+step 9    defconfig + 关键包校验（含 WEXT 四件套校验）
+```
+
+5.6 必须在 6 之前：要往 `package/custom` 补包并重建索引。
+7.6 必须在 9 之前：只有先改了 `.config`，`defconfig` 才算对依赖。
+
+`toolchain-only` 模式下 5.6 / 7.6 都不跑，9 步的 WiFi 校验也会跳过 —— 只预热
+工具链时没有理由为一个还没编出来的包失败。
+
+### 注意事项
+
+1. **EEPROM 必须自备。** 校准数据每块板子不同，包里只有通用模板
+   （`ePAeLNA` / `iPAiLNA` 几种前端组合）。没有真机校准值时射频照样起来、
+   照样能关联，只是功率不对 —— 典型症状是"连得上、速率极低"。刷完看 rootfs 里的
+   `/etc/mt7916/README`，按里面的 UCI 方式配一次。
+2. **`znxt_zn515xg-d` 已有人适配**：ponwrt 自带
+   `package/firmware/znxt-zn515-mt7916-eeprom`。别的机型还没人做。
+3. **目前拿不到 NPU 卸载收益。** `airoha_mt7916_offload.ko` 当前实现返回 0。
+   调用点 `if (ra_sw_nat_hook_tx(...) != 1) txblk->DropPkt = TRUE;` 的语义决定了
+   返回 0 = "走慢路、驱动自己发"，不丢包但也没加速。要真正接管还得做三件事：
+   解析 `airoha,npu` / `airoha,eth` phandle、认领 WDMA ring、推帧后返回 1。
+   见 `packages/mt7916-ap/src/offload/airoha_mt7916_offload.c` 顶部 TODO。
+4. **NPU 固件最好配套。** MT7916 是 **kite** 数据面，AN7581 的 stock 固件是
+   MT7992 的 **eagle** 变体。理想搭配是 `npu_fw=clanker` + `npu_wifi=MT7916`
+   （产出 `airoha-en7581-mt7916-npu-firmware` 这个可选包）。即使不匹配也不会导致
+   WiFi 起不来，只是走不到硬件卸载那条路 —— 而当前端点本来也没接进去。
+5. **首次编译会明显变慢。** `mt7916-ap` 是源码构建：约 18 MB 源码包 + 219 个
+   编译对象。`dl` 缓存命中之后会好很多。
+6. **LuCI 的无线页面会是空的。** mt_wifi 没有 nl80211 / `iwinfo` 后端，
+   配置只能走命令行或自己写 netifd handler（包里带了一个 `mtwifi.sh` 骨架）。
+
+### 刷完怎么验
+
+```sh
+lsmod | grep -E "mt_wifi|airoha_mt7916_offload|mt_whnat"
+dmesg | grep -iE "mt_wifi|WEXT|e2p|7916"
+ls -l /lib/firmware/WIFI_RAM_CODE_MT7916.bin \
+      /lib/firmware/mt7916_patch_e1_hdr.bin \
+      /lib/firmware/7916_WACPU_RAM_CODE_release.bin
+ls -l /lib/firmware/e2p          # 驱动默认 EEPROM 路径，必须有
+iwpriv ra0 show 2>&1 | head      # 能出东西 = WEXT 通了
+iwconfig ra0
+```
+
+`iwpriv` 报 `Operation not supported` 基本就是 `CONFIG_WEXT_PRIV` 没生效：
+回头看 `target/linux/airoha/an7581/config-6.18` 里那四行在不在、
+以及 `target/linux/generic/hack-6.18/299-add-wext-kconfig-prompts.patch`
+有没有真的被施加（构建日志里搜 `Applying ... generic patch`）。
 
 ## 工具链缓存机制
 

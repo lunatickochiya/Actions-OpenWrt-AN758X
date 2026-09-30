@@ -1,0 +1,19 @@
+--- a/mt_wifi/embedded/include/security/sec_cmm.h
++++ b/mt_wifi/embedded/include/security/sec_cmm.h
+@@ -11,7 +11,15 @@
+ 
+ #include "security/owe_cmm.h"
+ 
+-#ifdef SUPP_SAE_SUPPORT
++/*
++ * sae_cmm.h carries the definitions of struct pwd_id_list / sae_capability /
++ * sae_pk_cfg, which are referenced further down inside #if defined
++ * (DOT11_SAE_SUPPORT) || defined(SUPP_SAE_SUPPORT).  Upstream only pulled it
++ * in for SUPP_SAE_SUPPORT, so an AP-only build with CONFIG_WPA3_SUPPORT=y
++ * (= -DDOT11_SAE_SUPPORT) hit "field has incomplete type" errors.  Align the
++ * include condition with the condition guarding the struct members.
++ */
++#if defined(DOT11_SAE_SUPPORT) || defined(SUPP_SAE_SUPPORT)
+ #include "security/sae_cmm.h"
+ #endif
+ 

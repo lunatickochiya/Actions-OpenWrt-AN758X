@@ -1,0 +1,18 @@
+--- a/mt_wifi/embedded/ap/ap_mbss_inf.c
++++ b/mt_wifi/embedded/ap/ap_mbss_inf.c
+@@ -43,7 +43,14 @@
+ 
+ #ifdef MBSS_SUPPORT
+ 
+-/*#include "rt_config.h" */
++/*
++ * Several OS-layer sources in this release ship their aggregate
++ * #include "rt_config.h" commented out, which leaves struct wifi_dev /
++ * RTMP_ADAPTER / MSDU_FORBID_* / os_snprintf_error() and the mtwf_dbg_prt()
++ * prototype (used by MTWF_DBG) undeclared.  Restore it.
++ */
++#include "rt_config.h"
++
+ #include "rtmp_comm.h"
+ #include "rt_os_util.h"
+ #include "rt_os_net.h"

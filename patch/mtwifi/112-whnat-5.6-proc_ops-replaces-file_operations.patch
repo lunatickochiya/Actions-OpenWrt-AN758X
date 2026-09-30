@@ -1,0 +1,300 @@
+--- a/mt_wifi/embedded/plug_in/whnat/woe_proc.c	2025-04-08 12:54:04.000000000 +0800
++++ b/mt_wifi/embedded/plug_in/whnat/woe_proc.c	2026-09-29 09:47:07.454210039 +0800
+@@ -55,7 +55,7 @@
+ */
+ static int wdma_proc_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, wdma_proc_show, PDE_DATA(file_inode(file)));
++	return single_open(file, wdma_proc_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -68,7 +68,7 @@
+ 	char value[64];
+ 	char *end;
+ 	char choice;
+-	struct wdma_entry *wdma = (struct wdma_entry *)PDE_DATA(file_inode(file));
++	struct wdma_entry *wdma = (struct wdma_entry *)pde_data(file_inode(file));
+ 
+ 	if (buff && !copy_from_user(value, buff, len1)) {
+ 		choice = whnat_str_tol(value, &end, 10);
+@@ -108,7 +108,7 @@
+ */
+ static int wed_proc_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, wed_proc_show, PDE_DATA(file_inode(file)));
++	return single_open(file, wed_proc_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -120,7 +120,7 @@
+ 	char value[64];
+ 	char *end;
+ 	char choice;
+-	struct wed_entry *wed = (struct wed_entry *)PDE_DATA(file_inode(file));
++	struct wed_entry *wed = (struct wed_entry *)pde_data(file_inode(file));
+ 
+ 	if (buff && !copy_from_user(value, buff, len1)) {
+ 		choice = whnat_str_tol(value, &end, 10);
+@@ -153,7 +153,7 @@
+ */
+ static int whnat_proc_cr_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, whnat_proc_cr_show, PDE_DATA(file_inode(file)));
++	return single_open(file, whnat_proc_cr_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -171,7 +171,7 @@
+ 	char *s = value;
+ 	unsigned long addr;
+ 	unsigned int cr_value = 0;
+-	struct whnat_entry *whnat = (struct whnat_entry *)PDE_DATA(file_inode(file));
++	struct whnat_entry *whnat = (struct whnat_entry *)pde_data(file_inode(file));
+ 
+ 	if (buff && !copy_from_user(value, buff, len1)) {
+ 		token = strsep(&s, " ");
+@@ -249,7 +249,7 @@
+ */
+ static int whnat_proc_ctrl_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, whnat_proc_ctrl_show, PDE_DATA(file_inode(file)));
++	return single_open(file, whnat_proc_ctrl_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -265,7 +265,7 @@
+ 	char is_true;
+ 	char type;
+ 	char *s = value;
+-	struct whnat_entry *whnat = (struct whnat_entry *)PDE_DATA(file_inode(file));
++	struct whnat_entry *whnat = (struct whnat_entry *)pde_data(file_inode(file));
+ 
+ 	if (buff && !copy_from_user(value, buff, len1)) {
+ 		token = strsep(&s, " ");
+@@ -310,7 +310,7 @@
+ */
+ static int whnat_proc_trace_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, whnat_proc_trace_show, PDE_DATA(file_inode(file)));
++	return single_open(file, whnat_proc_trace_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -326,7 +326,7 @@
+ 	char *token;
+ 	char *s = value;
+ 	unsigned int tmp;
+-	struct whnat_ctrl *ctrl = (struct whnat_ctrl *)PDE_DATA(file_inode(file));
++	struct whnat_ctrl *ctrl = (struct whnat_ctrl *)pde_data(file_inode(file));
+ 	struct whnat_cputracer *tracer = &ctrl->hif_cfg.tracer;
+ 
+ 	if (buff && !copy_from_user(value, buff, len1)) {
+@@ -383,7 +383,7 @@
+ */
+ static int whnat_proc_state_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, whnat_proc_state_show, PDE_DATA(file_inode(file)));
++	return single_open(file, whnat_proc_state_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -396,7 +396,7 @@
+ 	char value[64];
+ 	char *end;
+ 	char log;
+-	struct whnat_entry *whnat = (struct whnat_entry *)PDE_DATA(file_inode(file));
++	struct whnat_entry *whnat = (struct whnat_entry *)pde_data(file_inode(file));
+ 
+ 	if (buff && !copy_from_user(value, buff, len1)) {
+ 		log = whnat_str_tol(value, &end, 10);
+@@ -434,7 +434,7 @@
+ */
+ static int whnat_proc_cfg_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, whnat_proc_cfg_show, PDE_DATA(file_inode(file)));
++	return single_open(file, whnat_proc_cfg_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -453,7 +453,7 @@
+ */
+ static int whnat_proc_tx_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, whnat_proc_tx_show, PDE_DATA(file_inode(file)));
++	return single_open(file, whnat_proc_tx_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+@@ -472,12 +472,21 @@
+ */
+ static int whnat_proc_rx_open(struct inode *inode, struct file *file)
+ {
+-	return single_open(file, whnat_proc_rx_show, PDE_DATA(file_inode(file)));
++	return single_open(file, whnat_proc_rx_show, pde_data(file_inode(file)));
+ }
+ 
+ /*
+  * global file operation
+ */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_whnat_trace_fops = {
++	.proc_open = whnat_proc_trace_open,
++	.proc_write  = whnat_proc_trace_write,
++	.proc_read	= seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_whnat_trace_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = whnat_proc_trace_open,
+@@ -486,7 +495,17 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_whnat_cr_fops = {
++	.proc_open = whnat_proc_cr_open,
++	.proc_write  = whnat_proc_cr_write,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_whnat_cr_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = whnat_proc_cr_open,
+@@ -495,7 +514,17 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_whnat_stat_fops = {
++	.proc_open = whnat_proc_state_open,
++	.proc_write  = whnat_proc_state_write,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_whnat_stat_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = whnat_proc_state_open,
+@@ -504,7 +533,16 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_whnat_cfg_fops = {
++	.proc_open = whnat_proc_cfg_open,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_whnat_cfg_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = whnat_proc_cfg_open,
+@@ -512,7 +550,16 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_whnat_tx_fops = {
++	.proc_open = whnat_proc_tx_open,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_whnat_tx_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = whnat_proc_tx_open,
+@@ -520,7 +567,16 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_whnat_rx_fops = {
++	.proc_open = whnat_proc_rx_open,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_whnat_rx_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = whnat_proc_rx_open,
+@@ -528,7 +584,17 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_wed_fops = {
++	.proc_open = wed_proc_open,
++	.proc_write  = wed_proc_write,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_wed_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = wed_proc_open,
+@@ -537,7 +603,17 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_wdma_fops = {
++	.proc_open = wdma_proc_open,
++	.proc_write  = wdma_proc_write,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_wdma_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = wdma_proc_open,
+@@ -546,7 +622,17 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
++static const struct proc_ops proc_ctrl_fops = {
++	.proc_open = whnat_proc_ctrl_open,
++	.proc_write  = whnat_proc_ctrl_write,
++	.proc_read  = seq_read,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++#else
+ static const struct file_operations proc_ctrl_fops = {
+ 	.owner = THIS_MODULE,
+ 	.open = whnat_proc_ctrl_open,
+@@ -555,6 +641,7 @@
+ 	.llseek = seq_lseek,
+ 	.release = single_release,
+ };
++#endif
+ 
+ /*
+  *  proc register/unregister

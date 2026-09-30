@@ -1,0 +1,19 @@
+--- a/mt_wifi/include/os/rt_linux.h
++++ b/mt_wifi/include/os/rt_linux.h
+@@ -1700,5 +1700,16 @@
+ VOID os_module_init(VOID);
+ VOID os_module_exit(VOID);
+ 
++/*
++ * Linux 6.2 introduced timer_delete()/timer_delete_sync() and kept del_timer()/
++ * del_timer_sync() around as thin wrappers; 6.15 dropped those wrappers.
++ * Alias the old names so the rest of the driver keeps working unchanged.
++ */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0))
++#include <linux/timer.h>
++#define del_timer(_timer)		timer_delete(_timer)
++#define del_timer_sync(_timer)		timer_delete_sync(_timer)
++#endif
++
+ #endif /* __RT_LINUX_H__ */
+ 

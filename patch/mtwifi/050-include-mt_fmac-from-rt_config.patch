@@ -1,0 +1,17 @@
+--- a/mt_wifi/embedded/include/rt_config.h
++++ b/mt_wifi/embedded/include/rt_config.h
+@@ -516,4 +516,14 @@
+ #endif /* CONFIG_LINUX_CRYPTO */
+ #endif /* SW_CONNECT_SUPPORT */
+ 
++/*
++ * mt_fmac.h is the home of several definitions this tree reaches for without
++ * pulling the header in: wtbl_update_pwr_offset(), the ENUM_AHDBUG_L1_* codes
++ * used by the MCU layer, struct txs_frame and the TXS_* field masks used by
++ * the TXS module, etc.  Upstream relies on it arriving through ate.h or one of
++ * the plug-in headers, neither of which is present in an AP-only build, so
++ * include it here -- last, so everything above is already in scope.
++ */
++#include "mac/mac_mt/fmac/mt_fmac.h"
++
+ #endif	/* __RT_CONFIG_H__ */

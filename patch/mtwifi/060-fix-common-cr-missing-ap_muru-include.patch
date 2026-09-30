@@ -1,0 +1,16 @@
+--- a/mt_wifi/include/chip/common_cr.h
++++ b/mt_wifi/include/chip/common_cr.h
+@@ -1,6 +1,13 @@
+ #ifndef __COMMON_CR_H__
+ #define __COMMON_CR_H__
+ /*
++ * _MURU_LOCAL_DATA_T below embeds CMD_MURU_BSRP_CTRL / CMD_MURU_HESND_CTRL /
++ * CMD_MURU_CERT_SEND_FRAME_CTRL (from ap_muru.h) and sizes an array with
++ * MAX_NUM_TXCMD_TX_USER (from he_cfg.h).  Those normally arrive via rtmp.h,
++ * but the chip CR headers are usually pulled in before it, so pull them here.
++ */
++#include "ap_muru.h"
++/*
+ WTBL definition
+ Copy form BORA hal_wtbl_rom.c
+ */

@@ -1,0 +1,13 @@
+--- a/mt_wifi/include/chip/mt7916.h	2025-04-08 12:54:11.000000000 +0800
++++ b/mt_wifi/include/chip/mt7916.h	2026-09-29 09:13:35.890279869 +0800
+@@ -71,9 +71,9 @@
+ 
+ #ifdef PRE_CAL_MT7916_SUPPORT
+ 
+-#ifdef RTMP_FLASH_SUPPORT
+ #define PRECAL_INDICATION_BYTE 0x19A
+ 
++#ifdef RTMP_FLASH_SUPPORT
+ #define CAL_PRE_CAL_SIZE_OFFSET  4096	/* DW0 : 0xE00 ~ 0xE03 Used for save total pre-cal size
+ 										*  DW1 : reserved
+ 										*  DW2 : reserved

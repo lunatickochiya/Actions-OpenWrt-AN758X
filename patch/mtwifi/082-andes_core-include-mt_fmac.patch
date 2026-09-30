@@ -1,0 +1,11 @@
+--- a/mt_wifi/embedded/mcu/andes_core.c
++++ b/mt_wifi/embedded/mcu/andes_core.c
+@@ -18,6 +18,8 @@
+ 	andes_core.c
+ */
+ #include "rt_config.h"
++/* ENUM_AHDBUG_L1_WFDMA lives here; rt_config.h does not reach it. */
++#include "mac/mac_mt/fmac/mt_fmac.h"
+ 
+ #ifdef DBG_STARVATION
+ static void andes_starv_timeout_handle(struct starv_dbg *starv, struct starv_log_entry *entry)

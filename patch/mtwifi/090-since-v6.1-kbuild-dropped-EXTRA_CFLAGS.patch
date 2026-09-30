@@ -1,0 +1,15 @@
+--- a/mt_wifi_ap/Makefile
++++ b/mt_wifi_ap/Makefile
+@@ -3040,3 +3040,12 @@
+ MODULE_FLAGS=$(EXTRA_CFLAGS)
+ export MODULE_FLAGS
+ obj-m+=$(SRC_EMBEDDED_DIR)/plug_in/
++
++# ==== ponwrt/6.18 port ==================================================
++# Linux >= 6.x dropped the EXTRA_CFLAGS backward-compat hook in kbuild
++# (scripts/Makefile.lib no longer has  ccflags-y += $(EXTRA_CFLAGS)).
++# Every -I and -D below is appended to EXTRA_CFLAGS by this Makefile, so
++# simply forward it; without this line NOTHING gets its include paths or
++# its CONFIG_* defines and every file fails on rt_config.h.
++ccflags-y += $(EXTRA_CFLAGS)
++# =========================================================================

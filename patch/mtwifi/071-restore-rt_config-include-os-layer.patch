@@ -1,0 +1,18 @@
+--- a/mt_wifi/os/linux/sta_ioctl.c
++++ b/mt_wifi/os/linux/sta_ioctl.c
+@@ -32,7 +32,14 @@
+ #include "rtmp_comm.h"
+ #include "rt_os_util.h"
+ #include "rt_os_net.h"
+-/*#include	"rt_config.h" */
++/*
++ * Several OS-layer sources in this release ship their aggregate
++ * #include "rt_config.h" commented out, which leaves struct wifi_dev /
++ * RTMP_ADAPTER / MSDU_FORBID_* / os_snprintf_error() and the mtwf_dbg_prt()
++ * prototype (used by MTWF_DBG) undeclared.  Restore it.
++ */
++#include "rt_config.h"
++
+ 
+ #ifdef DBG
+ extern int   DebugLevel;

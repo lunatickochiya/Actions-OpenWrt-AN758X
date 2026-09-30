@@ -1,0 +1,28 @@
+--- a/mt_wifi/embedded/include/rtmp_timer.h
++++ b/mt_wifi/embedded/include/rtmp_timer.h
+@@ -151,10 +151,24 @@
+ #endif
+ #else /* !RTMP_TIMER_TASK_SUPPORT */
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,19,0))
++/*
++ * Linux 6.18 renamed from_timer() to timer_container_of().  The argument
++ * order is unchanged (var, callback_timer, timer_fieldname), so this is a
++ * straight alias.  Feature-test the macro itself rather than guessing the
++ * exact upstream rename version, so this keeps working on both sides.
++ */
++#ifdef timer_container_of
++#define MTK_TIMER_CONTAINER_OF(_var, _timer, _field) \
++	timer_container_of(_var, _timer, _field)
++#else
++#define MTK_TIMER_CONTAINER_OF(_var, _timer, _field) \
++	from_timer(_var, _timer, _field)
++#endif
++
+ #define BUILD_TIMER_FUNCTION(_func)										\
+ void rtmp_timer_##_func(struct timer_list *_timer)										\
+ {																			\
+-	PRALINK_TIMER_STRUCT	pTimer = from_timer(pTimer,_timer,TimerObj);				\
++	PRALINK_TIMER_STRUCT	pTimer = MTK_TIMER_CONTAINER_OF(pTimer, _timer, TimerObj);	\
+ 																			\
+ 	_func(NULL, (PVOID) pTimer->cookie, NULL, pTimer); 							\
+ 	if (pTimer->Repeat)														\

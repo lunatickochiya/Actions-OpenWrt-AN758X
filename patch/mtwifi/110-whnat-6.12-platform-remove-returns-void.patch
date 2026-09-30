@@ -1,0 +1,53 @@
+--- a/mt_wifi/embedded/plug_in/whnat/woe_main.c	2025-04-08 12:54:04.000000000 +0800
++++ b/mt_wifi/embedded/plug_in/whnat/woe_main.c	2026-09-29 09:47:07.454210039 +0800
+@@ -33,6 +33,13 @@
+ #define DRIVER_DESC "Register for MTK WIFI-to-Eth Offload Engain "
+ #define WHNAT_PLATFORM_DEV_NAME "whnat_dev"
+ 
++/* platform_driver::remove became "returns void" in Linux 6.12 */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0))
++#define WHNAT_REMOVE_RETURN(_v)	do { return; } while (0)
++#else
++#define WHNAT_REMOVE_RETURN(_v)	do { return (_v); } while (0)
++#endif
++
+ static struct whnat_ctrl sys_wc;
+ 
+ /*
+@@ -207,7 +214,11 @@
+ /*
+ *
+ */
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0))
++static void whnat_remove(struct platform_device *pdev)
++#else
+ static int whnat_remove(struct platform_device *pdev)
++#endif
+ {
+ 	struct whnat_entry *whnat;
+ 	struct wed_entry *wed;
+@@ -218,7 +229,7 @@
+ 
+ 	if (whnat == NULL) {
+ 		WHNAT_DBG(WHNAT_DBG_ERR, "%s(): remove faild since can't find whnat entry!\n", __func__);
+-		return -1;
++		WHNAT_REMOVE_RETURN(-1);
+ 	}
+ 
+ 	wed = &whnat->wed;
+@@ -235,7 +246,7 @@
+ 	/*reomve whnat entry from whnat_ctrl*/
+ 	whnat_entry_release_pdev(whnat);
+ 	WHNAT_DBG(WHNAT_DBG_OFF, "%s(): whnat remove done!!\n", __func__);
+-	return 0;
++	WHNAT_REMOVE_RETURN(0);
+ }
+ 
+ /*
+@@ -901,5 +912,5 @@
+ 
+ MODULE_LICENSE("Dual BSD/GPL");
+ MODULE_DESCRIPTION(DRIVER_DESC);
+-MODULE_SUPPORTED_DEVICE("mt7615 within mt7622");
++/* MODULE_SUPPORTED_DEVICE() was removed from the kernel long ago */
+ 
