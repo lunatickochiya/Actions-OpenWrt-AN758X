@@ -31,6 +31,15 @@ env:
   #   CONFIG_PACKAGE_airoha-en7581-mt7916-npu-firmware=y
   NPU_DEFAULT_WIFI: ${{ github.event.inputs.npu_default_wifi || 'MT7916' }}
   NPU_FILES_FALLBACK: ${{ github.event.inputs.npu_fw_files_fallback || 'false' }}
+  # 固件版本后缀（显示在 LuCI 概览页「固件版本」后面）
+  FW_AUTHOR: ${{ github.event.inputs.fw_author || 'qwe3017' }}
+  FW_BUILD_TIME: ''                 # 留空 = 自动取构建时时间（Asia/Shanghai）
+  FW_DESC_SUFFIX: ''               # 留空 = "· <作者> · <构建时间>"；填了则完全自定义
+  # ---- WiFi 驱动链路 ----
+  #   mac80211      = 上游开源 mt7915e (mt76)，走 cfg80211
+  #   mtwifi        = MTK 闭源 mt_wifi，自带 MLME/AP，控制面是 iwpriv
+  #   mtwifi+whnat  = 上面那个 + 挂载 mt_whnat NPU 卸载适配层
+  WIFI_DRIVER: ${{ github.event.inputs.wifi_driver || 'mac80211' }}
 
 on:
   repository_dispatch:
@@ -158,6 +167,19 @@ on:
         description: 'ClankerNPU 源码 ref (默认 main=跟上游最新；也可填 commit sha / tag 钉死版本)'
         required: false
         default: 'main'
+      wifi_driver:
+        description: 'WiFi 驱动链路 (mtwifi=MTK 闭源 mt_wifi，会同时关掉上游 mt7915e)'
+        required: false
+        default: 'mac80211'
+        type: choice
+        options:
+          - mac80211
+          - mtwifi
+          - mtwifi+whnat
+      fw_author:
+        description: '固件版本后面显示的作者名（LuCI 概览页「固件版本」）'
+        required: false
+        default: 'qwe3017'
       upload_release:
         description: '固件发布到 Release（false 则只传 Artifact）'
         required: false
@@ -364,6 +386,30 @@ jobs:
         cd "$BUILD_ROOT/openwrt"
         chmod +x "$GITHUB_WORKSPACE/$DIY_P1_SH"
         "$GITHUB_WORKSPACE/$DIY_P1_SH"
+
+    # =========================================================
+    # 5.6 导入闭源 WiFi 驱动 (mt_wifi) —— 仅在 wifi_driver=mtwifi* 时执行
+    #
+    #     排在 step 5 (diy-part1.sh) 之后、step 6 (加载 .config) 之前：
+    #     这里要给 package/custom 补一个包，索引必须在 defconfig 之前建好，
+    #     否则 .config 里的 =y 会被当无效符号静默删掉。
+    #
+    #     🐢 mt7916-ap 是源码编译：18 MB 源码包 + 219 个对象，首次构建
+    #        会明显拉长编译时间（dl 有缓存时好很多）。
+    #
+    #     ⚠️ 闭源 mt_wifi 与上游 mt7915e 必须二选一 —— 两者都认 PCI 上的
+    #        14C3:7906，同时启用会互相抢设备。关 mt7915e 在 step 7.6。
+    # =========================================================
+    - name: Import closed-source WiFi driver (mt_wifi)
+      if: startsWith(env.WIFI_DRIVER, 'mtwifi') && env.BUILD_SCOPE != 'toolchain-only'
+      run: |
+        set -euo pipefail
+        cd "$BUILD_ROOT/openwrt"
+        chmod +x "$GITHUB_WORKSPACE/scripts/"*.sh
+
+        WIFI_DRIVER="$WIFI_DRIVER" SOC="$SOC" \
+        REPO_DIR="$GITHUB_WORKSPACE" PONWRT_DIR=. \
+          bash "$GITHUB_WORKSPACE/scripts/apply-mtwifi.sh"
 
     # =========================================================
     # 5.5 编译 NPU 固件 (ClankerNPU) 并生成「可选插件包」
@@ -618,13 +664,88 @@ jobs:
         grep -nE 'npu-firmware' .config || echo "(无)"
 
     # =========================================================
+    # 7.6 切换 WiFi 驱动包 —— 必须在 defconfig 之前改 .config
+    #
+    #     闭源 mt_wifi 与上游 mt7915e 抢同一个 PCI 设备 14C3:7906，
+    #     而且 mt_wifi 自带 MLME/AP，cfg80211 那条链路它一个都不用，
+    #     所以必须二选一。
+    #
+    #     手法与 7.5 完全一致：机型 config 里硬写着
+    #     "CONFIG_PACKAGE_kmod-mt7915e=y"，用户显式值优先于 default，
+    #     所以只有反过来显式写 "# ... is not set" 才能压下去；删行不行，
+    #     删了会落到 "default y" 上，等于没关。
+    #     DEFAULT_ / MODULE_DEFAULT 一并关，防 DEFAULT_PACKAGES 兜底把他拉回来。
+    #
+    #     ⚠️ 故意不动 kmod-mac80211 / kmod-cfg80211：它们不 probe 任何硬件，
+    #        关掉反而会让依赖它们DEPENDS 的包在 defconfig 时解析失败。
+    #        只关真正抢设备的 mt76 三件套。
+    # =========================================================
+    - name: Switch WiFi driver package
+      if: env.BUILD_SCOPE != 'toolchain-only'
+      run: |
+        cd "$BUILD_ROOT/openwrt"
+
+        # mt7915e / mt76-core / mt76-connac：真正的冲突方
+        MT76_PKGS="kmod-mt7915e kmod-mt76-connac kmod-mt76-core"
+
+        case "$WIFI_DRIVER" in
+          mtwifi*)
+            echo "--- 关闭上游 mt76 链路 ---"
+            for sym in $MT76_PKGS; do
+              # 先整段清零（三种前缀），再统一写 is not set
+              sed -i -E \
+                -e "/^CONFIG_PACKAGE_${sym}=/d" \
+                -e "/^# CONFIG_PACKAGE_${sym} is not set$/d" \
+                -e "/^CONFIG_DEFAULT_${sym}=/d" \
+                -e "/^# CONFIG_DEFAULT_${sym} is not set$/d" \
+                -e "/^CONFIG_MODULE_DEFAULT_${sym}=/d" \
+                -e "/^# CONFIG_MODULE_DEFAULT_${sym} is not set$/d" \
+                .config
+              echo "# CONFIG_PACKAGE_${sym} is not set"         >> .config
+              echo "# CONFIG_DEFAULT_${sym} is not set"         >> .config
+              echo "# CONFIG_MODULE_DEFAULT_${sym} is not set"  >> .config
+            done
+            echo "CONFIG_PACKAGE_kmod-mt7916-ap=y" >> .config
+            echo "✅ WiFi 驱动 = $WIFI_DRIVER"
+            if [ "$WIFI_DRIVER" = "mtwifi+whnat" ]; then
+              echo "CONFIG_MT7916_AP_OFFLOAD=y" >> .config
+              echo "   mt_whnat 卸载适配层: 开"
+              echo "   ⚠️ 端点当前实现返回 0（没接管），与驱动不冲突，但也拿不到"
+              echo "      NPU 加速收益 —— 只是先把适配层跑通"
+            else
+              echo "   mt_whnat 卸载适配层: 关"
+            fi
+            ;;
+          *)
+            echo "--- 保持 / 恢复上游 mt76 链路 ---"
+            for sym in $MT76_PKGS; do
+              sed -i -E \
+                -e "/^# CONFIG_PACKAGE_${sym} is not set$/d" \
+                -e "/^# CONFIG_DEFAULT_${sym} is not set$/d" \
+                -e "/^# CONFIG_MODULE_DEFAULT_${sym} is not set$/d" \
+                .config
+            done
+            sed -i '/^CONFIG_PACKAGE_kmod-mt7916-ap=[ym]/d' .config
+            sed -i '/^CONFIG_MT7916_AP_OFFLOAD=[yn]/d' .config
+            echo "✅ WiFi 驱动 = mac80211 (kmod-mt7915e)"
+            ;;
+        esac
+
+        echo "--- 修改后 .config 中的 WiFi 驱动行 ---"
+        grep -nE "CONFIG_(PACKAGE|DEFAULT|MODULE_DEFAULT)_(kmod-(mt7915e|mt7916-ap|mt76-core|mt76-connac)|wireless-tools)=|CONFIG_MT7916_AP_OFFLOAD=" .config \
+          || echo "(无)"
+
+    # =========================================================
     # 8. diy-part2.sh —— 时区改为中国
     # =========================================================
     - name: Set timezone to China (diy-part2.sh)
       run: |
         cd "$BUILD_ROOT/openwrt"
         chmod +x "$GITHUB_WORKSPACE/$DIY_P2_SH"
-        "$GITHUB_WORKSPACE/$DIY_P2_SH"
+        FW_AUTHOR="$FW_AUTHOR" FW_BUILD_TIME="$FW_BUILD_TIME" FW_DESC_SUFFIX="$FW_DESC_SUFFIX" \
+        WIFI_5G_COUNTRY="$WIFI_5G_COUNTRY" WIFI_5G_CHANNEL="$WIFI_5G_CHANNEL" \
+        WIFI_5G_HTMODE="$WIFI_5G_HTMODE" WIFI_5G_FALLBACK="$WIFI_5G_FALLBACK" \
+          "$GITHUB_WORKSPACE/$DIY_P2_SH"
 
     # =========================================================
     # 9. defconfig + 生成工具链缓存 Key + 校验机型
@@ -733,6 +854,71 @@ jobs:
           exit 1
         fi
         echo "✅ 状态插件校验通过"
+
+        # =========================================================
+        # WiFi 驱动链路校验（defconfig 之后）
+        #   mtwifi  : kmod-mt7916-ap 必须在、mt7915e 必须已关
+        #            另外确认 WEXT 那几行确实写进了目标 config —— 没落到源码
+        #            树上的话，编出来的驱动是"能加载但没法配置"
+        #   mac80211: 反向确认 mt7915e 还在（防止 sed 误伤）
+        # =========================================================
+        KVER="$(sed -ne 's/^KERNEL_PATCHVER[ \t]*:*[?+]\?=[ \t]*//p' target/linux/airoha/Makefile | head -1)"
+        HACK_PATCH="target/linux/generic/hack-${KVER}/299-add-wext-kconfig-prompts.patch"
+        TARGET_CFG="target/linux/airoha/${SOC}/config-${KVER}"
+        # toolchain-only 只预热工具链，5.6 / 7.6 都没跑，这里不能校验
+        if [ "${BUILD_SCOPE}" = "toolchain-only" ]; then
+          echo "⏭ toolchain-only：跳过 WiFi 驱动链路校验"
+        else
+        case "$WIFI_DRIVER" in
+          mtwifi*)
+            echo "--- WiFi 驱动校验 (mtwifi) ---"
+            if ! grep -q "^CONFIG_PACKAGE_kmod-mt7916-ap=y" .config; then
+              echo "::error::kmod-mt7916-ap 在 defconfig 后未启用"
+              echo "  1) 包目录:        $([ -d 'package/custom/mt7916-ap' ] && echo '存在' || echo '不存在')"
+              echo "  2) feeds 链接:    $([ -e 'package/feeds/custom/mt7916-ap' ] && echo '存在' || echo '不存在')"
+              echo "  3) .packageinfo:  $(grep -c '^Package: kmod-mt7916-ap$' tmp/.packageinfo 2>/dev/null || echo 0) 条"
+              echo "  4) .config 命中数: $(grep -cE 'MT7916|wireless-tools' .config)"
+              exit 1
+            fi
+            if grep -qE "^CONFIG_PACKAGE_kmod-mt7915e=[ym]" .config; then
+              echo "::error::kmod-mt7915e 仍未关闭，它会和 mt_wifi 抢 PCI 设备 14C3:7906"
+              echo "  检查 7.6 之后是否还有人被追加了 =y"
+              exit 1
+            fi
+            if ! grep -qE "^CONFIG_PACKAGE_wireless-tools=[ym]" .config; then
+              echo "::error::wireless-tools 未启用 —— mt_wifi 只有 iwpriv/iwconfig 可用，缺它等于没法配置"
+              exit 1
+            fi
+            echo "✅ WiFi 驱动 = 闭源 mt_wifi (mt7915e 已关, wireless-tools 已开)"
+
+            # WEXT 是整套控制面的地基，这一步没做到的话后面全是白工
+            for sym in CONFIG_WEXT_CORE CONFIG_WEXT_PROC CONFIG_WEXT_PRIV CONFIG_WIRELESS_EXT; do
+              if ! grep -qx "${sym}=y" "$TARGET_CFG"; then
+                echo "::error::$TARGET_CFG 里缺 ${sym}=y"
+                echo "  mt_wifi 控制面走的是 SIOCIW* ioctl，由 CONFIG_WEXT_CORE 编出来的"
+                echo "  net/wireless/wext-core.c 分发。缺它：驱动能加载，但没有任何手段配置。"
+                exit 1
+              fi
+            done
+            if [ ! -f "$HACK_PATCH" ]; then
+              echo "::error::缺少 net/wireless/Kconfig 的 prompt 补丁 (${HACK_PATCH})"
+              echo "  WIRELESS_EXT / WEXT_PRIV 是无 prompt 的隐藏 bool，"
+              echo "  不先给它们加 prompt，上面那几行会被 olddefconfig 静默丢掉。"
+              echo "  ⚠️ 该补丁必须针对内核 ${KVER} 重新生成 —— WEXT_SPY 在 6.12 之后已被移除，"
+              echo "     直接拿旧版的来用会 hunk 失败。"
+              exit 1
+            fi
+            echo "✅ WEXT 配置校验通过 (kernel ${KVER})"
+            ;;
+          *)
+            if ! grep -qE "^CONFIG_PACKAGE_kmod-mt7915e=[ym]" .config; then
+              echo "::warning::kmod-mt7915e 未启用，这台机器可能没有 WiFi"
+            else
+              echo "✅ WiFi 驱动 = mac80211 (kmod-mt7915e)"
+            fi
+            ;;
+        esac
+        fi
 
         # 中文包（po 注入后才存在，缺失只警告不阻断）
         if ! grep -q "^CONFIG_PACKAGE_luci-i18n-airoha-npu-zh-cn=y" .config; then
@@ -1109,6 +1295,11 @@ jobs:
           echo "| 编译时间 | $(date '+%Y-%m-%d %H:%M:%S') (Shanghai) |"
           echo "| NPU 固件 | \`${NPU_FW}\`$( [ "$NPU_FW" = "clanker" ] && echo " (${NPU_WIFI}, ClankerNPU)" ) |"
           [ -n "${NPU_FW_SYMBOL:-}" ] && echo "| NPU 固件包 | \`${NPU_FW_SYMBOL}\` (CONFIG_PACKAGE_...=y) |"
+          case "$WIFI_DRIVER" in
+            mtwifi)        echo "| WiFi 驱动 | \`闭源 mt_wifi\` (无 NPU 卸载) |" ;;
+            mtwifi+whnat)  echo "| WiFi 驱动 | \`闭源 mt_wifi\` (mt_whnat 适配层已挂载) |" ;;
+            *)             echo "| WiFi 驱动 | \`mac80211\` (kmod-mt7915e) |" ;;
+          esac
           echo ""
 
           # NPU 固件用 ClankerNPU 现编时，把版本/变体/校验写进 Release 便于回溯
@@ -1141,6 +1332,27 @@ jobs:
           echo "> 安装前请用 AN758x-Stock2UBI 备份原厂 flash，刷机后恢复 PON/校准数据。"
         } >> release.txt
         echo "status=success" >> "$GITHUB_OUTPUT"
+
+        # 闭源 mt_wifi 的运行边界，附注在 Release 里，免得别人刷完才发现
+        if [ "${WIFI_DRIVER}" != "mac80211" ]; then
+          {
+            echo "### WiFi 驱动 (闭源 mt_wifi)"
+            echo "| 项目 | 详情 |"
+            echo "|------|------|"
+            echo "| 源码包 | \`mt79xx-20250408-705eb4\` |"
+            if [ "${WIFI_DRIVER}" = "mtwifi+whnat" ]; then
+              echo "| 模块 | \`mt_wifi.ko\` + \`airoha_mt7916_offload.ko\` + \`mt_whnat.ko\` |"
+              echo "| NPU 卸载 | 适配层已挂载，但端点仍是慢路径 |"
+            else
+              echo "| 模块 | \`mt_wifi.ko\` + \`airoha_mt7916_offload.ko\` |"
+              echo "| NPU 卸载 | 关（驱动自发的传统数据路径） |"
+            fi
+            echo "| 控制面 | \`iwpriv\` / \`iwconfig\`（不是 \`iw\`，也没有 phy 设备） |"
+            echo "| EEPROM | 需自备，见 rootfs 里的 \`/etc/mt7916/README\` |"
+            echo ""
+          } >> release.txt
+          echo "::warning::闭源 mt_wifi 需要本机 EEPROM 校准数据才能跑出正常速率，见 /etc/mt7916/README"
+        fi
 
     - name: Upload firmware to release
       uses: softprops/action-gh-release@v2.3.2
