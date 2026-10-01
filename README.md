@@ -443,6 +443,43 @@ step 9     defconfig + 关键包校验（含 WEXT 四件套校验）
   什么都不做才对：`include/scan.mk` 的 stamp 依赖里就有 `image/*.mk`，
   改了时间戳 defconfig 会自己重扫。
 
+### 源码解到了错误的目录（run #68 的真实死因）
+
+第一版在 CI 上跑到第 29 步编译，64 分钟后失败，日志是 23 个补丁挨个报：
+
+```
+can't find file to patch at input line 3
+Perhaps you used the wrong -p or --strip option?
+No file to patch.  Skipping patch.
+Patch failed!  Please fix .../0xx-*.patch!
+make[3]: *** Error 123     (.prepared_...)
+```
+
+**补丁一个都没错。** 错的是解包目录。OpenWrt 默认解到 `PKG_BUILD_DIR` 的
+**父目录**（`include/unpack.mk:6` `TAR_CMD=$(HOST_TAR) -C $(1)/.. $(TAR_OPTIONS)`），
+它假设压缩包自带一层与 `PKG_BUILD_DIR` 同名的顶层目录。而
+`mt79xx_*.tar.xz` 没有这层包裹，顶层直接是 `bin/ mt_wifi/ mt_wifi_ap/ ...`：
+
+```
+xzcat dl/mt79xx_...tar.xz | tar -C .../mt7916-ap-source/.. -xf -
+                                                        ↑↑ 就是这两个点
+```
+
+结果源码全落在 `linux-airoha_an7581/` 下，`mt7916-ap-source/` 是个空目录，
+于是补丁全部 `No file to patch`，最后以 `Error 123` 收尾。
+
+修法是在包 Makefile 里自己写 `PKG_UNPACK`，解到 `PKG_BUILD_DIR` **里面**：
+`--no-same-owner` 是因为包里文件的属主是 MTK 内部的 uid 10011027。
+
+```makefile
+PKG_UNPACK:=$(SH_FUNC) mkdir -p $(PKG_BUILD_DIR); \
+	xzcat $(DL_DIR)/$(PKG_SOURCE) | $(TAR) -C $(PKG_BUILD_DIR) --no-same-owner -xf -
+```
+
+> 为什么本地验证没暴露：本地是我手工把源码放进 `PKG_BUILD_DIR` 再编的，
+> **整包跳过了 unpack 这一步**，所以三个 `.ko` 都编出来了，问题只在 CI 上现形。
+> 凡是"源码包 + 自定义解包"的组合，都必须在**空 build_dir** 上验一遍才作数。
+
 ### 注意事项
 
 1. **EEPROM 必须自备。** 校准数据每块板子不同，包里只有通用模板

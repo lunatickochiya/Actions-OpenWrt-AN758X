@@ -41,6 +41,33 @@ PKG_HASH:=b029d7b43c498193092dc6a3c857361c8835ce34bb306561c550ac0539784a78
 
 PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/$(PKG_NAME)-source
 
+# ------------------------------------------------------------------
+# 解包目标必须自己写死 —— OpenWrt 的默认行为在这个包上是错的
+#
+# include/unpack.mk:6
+#     TAR_CMD=$(HOST_TAR) -C $(1)/.. $(TAR_OPTIONS)
+# 默认解到 PKG_BUILD_DIR 的**父目录**，前提是压缩包自带一层与
+# PKG_BUILD_DIR 同名的顶层目录，解出来正好落进去。
+#
+# 而 mt79xx_*.tar.xz **没有**这层包裹，顶层直接就是六个目录：
+#     bin/ mt_wifi/ mt_wifi_ap/ mt_wifi_sta/ warp_driver/ wlan_service/
+# 于是默认行为把源码全解到 linux-airoha_an7581/ 下，
+# mt7916-ap-source/ 自己是个空目录。表现就是 23 个补丁挨个报
+#     can't find file to patch at input line 3
+#     No file to patch.  Skipping patch.
+#     Patch failed!  Please fix .../0xx-*.patch!
+# 最后 .prepared 以 Error 123 收尾 —— 真正的病根却藏在日志最前面
+# 那行 `tar -C .../mt7916-ap-source/..` 里，很容易被当成"补丁写错了"。
+#
+# 所以这里显式解到 PKG_BUILD_DIR *里面*。--no-same-owner 是因为包里
+# 的文件属主是 MTK 内部的 uid 10011027，不必（也不该）照搬。
+#
+# 实测（2026-10-01，针对 20250408-705eb4 这个包）：
+#   解开后按 series 顺序打 23 个补丁，23/23 全部干净应用。
+# ------------------------------------------------------------------
+PKG_UNPACK:=$(SH_FUNC) mkdir -p $(PKG_BUILD_DIR); \
+	xzcat $(DL_DIR)/$(PKG_SOURCE) | $(TAR) -C $(PKG_BUILD_DIR) --no-same-owner -xf -
+
 # 补丁目录必须在这里显式钉死。
 #
 # 不能依赖 kernel.mk 那句
@@ -187,6 +214,15 @@ MTK_WHNAT_BUILD := +$(MAKE) $(PKG_JOBS) -C "$(LINUX_DIR)" $(KERNEL_MAKE_FLAGS) \
 	modules
 
 define Build/Compile
+	# 0) 解包方向自检。万一 PKG_UNPACK 又被人改回默认，23 个补丁会以
+	#    "No file to patch" 的形式连环失败，真因却埋在几十行之前。
+	#    这里直接点名，省得再排查一轮。
+	[ -d "$(PKG_BUILD_DIR)/mt_wifi" ] && [ -d "$(PKG_BUILD_DIR)/mt_wifi_ap" ] || { \
+		echo "::error::mt_wifi 源码没落到 PKG_BUILD_DIR=$(PKG_BUILD_DIR)（解包目录错了）"; \
+		ls -la "$(PKG_BUILD_DIR)" | head -20; \
+		exit 1; \
+	}
+
 	# 1) Airoha 侧端点。它导出 ra_sw_nat_hook_tx，mt_whnat 要引用。
 	+$(MAKE) $(PKG_JOBS) -C "$(LINUX_DIR)" $(KERNEL_MAKE_FLAGS) \
 		M="$(PKG_BUILD_DIR)/offload" CONFIG_AIROHA_MT7916_OFFLOAD=m modules
