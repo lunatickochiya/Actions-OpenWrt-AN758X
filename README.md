@@ -390,25 +390,58 @@ mt_wifi 没有 cfg80211，也没有 phy 设备，`iw` / `hostapd` 全都管不�
 ### 执行顺序（不能反）
 
 ```
-step 5    diy-part1.sh                    拉 luci 插件，注册 custom feed
-step 5.5  Build NPU firmware package      可选：现编 NPU 固件 -> 可选插件包
-step 5.6  Import closed-source WiFi   ← 本功能
-            ① patch/kernel-generic/*  -> target/linux/generic/hack-<KVER>/
-            ② patch/kernel-an7581/*   -> 追加进 target config
-            ③ packages/mt7916-ap + patch/mtwifi/* -> package/custom/mt7916-ap
-            ④ 重建索引（不做的话 defconfig 会把包符号静默删掉）
-step 6    载入 .config
-step 7    裁剪机型
-step 7.5  Select NPU firmware package
-step 7.6  Switch WiFi driver package  ← 本功能
-step 9    defconfig + 关键包校验（含 WEXT 四件套校验）
+step 5     diy-part1.sh                    拉 luci 插件，注册 custom feed
+step 5.5   Build NPU firmware package      可选：现编 NPU 固件 -> 可选插件包
+step 5.6   Strip mt76 from DEVICE_PACKAGES ← 本功能（摘机型定义，见下）
+step 5.7   Import closed-source WiFi        ← 本功能
+             ① patch/kernel-generic/*  -> target/linux/generic/hack-<KVER>/
+             ② patch/kernel-an7581/*   -> 追加进 target config
+             ③ packages/mt7916-ap + patch/mtwifi/* -> package/custom/mt7916-ap
+             ④ 重建索引（不做的话 defconfig 会把包符号静默删掉）
+step 6     载入 .config
+step 7     裁剪机型
+step 7.5   Select NPU firmware package
+step 7.6   Switch WiFi driver package  ← 本功能（改 .config，求 select 闭包）
+step 9     defconfig + 关键包校验（含 WEXT 四件套校验）
 ```
 
-5.6 必须在 6 之前：要往 `package/custom` 补包并重建索引。
+5.7 必须在 6 之前：要往 `package/custom` 补包并重建索引。
 7.6 必须在 9 之前：只有先改了 `.config`，`defconfig` 才算对依赖。
 
-`toolchain-only` 模式下 5.6 / 7.6 都不跑，9 步的 WiFi 校验也会跳过 —— 只预热
+`toolchain-only` 模式下 5.6 / 5.7 / 7.6 都不跑，9 步的 WiFi 校验也会跳过 —— 只预热
 工具链时没有理由为一个还没编出来的包失败。
+
+### 为什么关个 mt7915e 要分两步（踩过的坑）
+
+第一版只在 7.6 改 `.config`，CI 上直接失败：
+`kmod-mt7915e 仍未关闭，它会和 mt_wifi 抢 PCI 设备 14C3:7906`。
+
+原因是**两层强制，`.config` 里写 `# ... is not set` 一层都压不住**：
+
+| 层 | 来源 | 长什么样 | 谁解 |
+|---|---|---|---|
+| ① Kconfig `select` | `kmod-mt7916-firmware` 的包定义 | `select PACKAGE_kmod-mt7915e` | 7.6 求闭包：把 select 者也关掉 |
+| ② 机型 `DEVICE_PACKAGES` | `target/linux/airoha/image/an7581.mk:213 / :296` | `select MODULE_DEFAULT_kmod-mt7915e if TARGET_PER_DEVICE_ROOTFS` | **5.6 从源头摘** |
+
+`select` 是硬强制，优先级高于 `.config` 里的显式值。实测只做 7.6：
+7.6 后是 `# CONFIG_PACKAGE_kmod-mt7915e is not set`，
+`defconfig` 之后回弹成 `CONFIG_PACKAGE_kmod-mt7915e=m`。
+
+这跟上游 4.5 步摘 stock NPU 固件是**同一类问题**，只是那次是 `DEFAULT_PACKAGES`、
+这次是 `DEVICE_PACKAGES`。5.6 的脚本就是照 4.5 的写法改的（同样要跟踪反斜杠续行）。
+
+另外两个实测细节，写在这里免得后人重踩：
+
+- 闭包是必要的但**不过度杀戮**：从 mt76 三件套出发求「谁 select 了我」，
+  an7581 下候选 40 个，但只有 4 个当前真的是 `=y`（`kmod-mt7915e` /
+  `kmod-mt76-core` / `kmod-mt76-connac` / `kmod-mt7916-firmware`）。
+  代码只对 `=y/=m` 的下手，本来就是 n 的不动。
+- **5.6 里不要自己重建索引**。试过 `rm -f tmp/.targetinfo + make prepare-tmpinfo
+  OPENWRT_BUILD=`，会把 target 索引搞坏（`.config-target.in` 从 14 MB 掉到
+  1860 字节、只剩骨架），defconfig 于是把 subtarget 解析成 `generic`，
+  连带 `mt7916-ap` 因 `depends on TARGET_airoha_an7581` 不满足被整个丢掉。
+  什么都不做才对：`include/scan.mk` 的 stamp 依赖里就有 `image/*.mk`，
+  改了时间戳 defconfig 会自己重扫。
 
 ### 注意事项
 
